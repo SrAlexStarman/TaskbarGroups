@@ -1,0 +1,28 @@
+# Build output
+**/bin/
+**/obj/
+artifacts/
+.vs/
+*.user
+*.suo
+
+# Installation-specific settings and generated assets
+**/groups.json
+**/groups.json.*
+**/catalog.json
+**/Accesos/
+**/AppIcons/
+**/Grupos/
+**/icons/
+*.lnk
+*.url
+activity.log*
+release-manifest.json
+
+# Local diagnostics and screenshots
+hover-*
+preview-*.png
+preview-host.txt
+native-taskbar-*.png
+diagnostic.txt
+self-test*

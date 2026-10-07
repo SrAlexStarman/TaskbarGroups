@@ -1,0 +1,28 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build, verify, and package
+        shell: pwsh
+        run: ./scripts/Publish.ps1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: TaskbarGroups-win-x64
+          path: artifacts/TaskbarGroups-win-x64.zip
+          if-no-files-found: error
