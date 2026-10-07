@@ -1,0 +1,38 @@
+TASKBAR GROUPS
+
+Requisitos: Windows 11 de 64 bits y .NET Desktop Runtime 10 de 64 bits.
+Descarga del runtime: https://dotnet.microsoft.com/download/dotnet/10.0
+
+Extrae todos los archivos en una carpeta donde puedas guardar cambios.
+Ejecuta TaskbarGroups.exe. La primera vez se abre el editor sin grupos.
+
+CREAR Y EDITAR
+Pulsa + Crear grupo, elige nombre, símbolo y color, y añade aplicaciones.
+Puedes buscar aplicaciones instaladas, buscar archivos o arrastrar accesos.
+Guarda los cambios para mostrar los iconos de grupo en la barra de tareas.
+Haz doble clic en el icono de la bandeja para volver al editor.
+
+ABRIR UN GRUPO
+Pasa el ratón sobre su icono o haz clic en él. Selecciona una aplicación
+en el panel emergente. Esc cierra el panel. Editar abre el editor.
+En el editor puedes ajustar la espera al pasar el ratón y la ocultación
+de la miniatura de Windows durante el uso de los grupos.
+
+ANCLAR E INICIAR CON WINDOWS
+Usa Accesos de grupo para anclar… en el menú de la bandeja. Ancla los
+accesos de la carpeta Grupos con las opciones de Windows.
+La opción Iniciar con Windows está en el editor.
+Para mostrar los iconos en otras pantallas, activa la opción correspondiente
+en la configuración de la barra de tareas de Windows.
+
+Los accesos individuales ya anclados no se eliminan automáticamente.
+Para detener la utilidad, usa Salir en el menú de la bandeja.
+
+DATOS LOCALES
+Los grupos se guardan junto al programa en groups.json; groups.json.bak
+conserva la configuración anterior. Los iconos y accesos se generan
+localmente. Esta distribución no incluye grupos ni iconos personales.
+Si mueves la carpeta, actualiza los accesos anclados y el de inicio.
+
+Código, instrucciones de compilación y limitaciones:
+https://github.com/SrAlexStarman/TaskbarGroups
