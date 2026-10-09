@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
@@ -101,7 +102,7 @@ sealed class Manager : ApplicationContext {
         if(!test)Program.Log("Inicio 1.0.0; supresión de miniaturas="+config.SuppressWindowsPreview);
         popup=new Popup(this);
         previewBlocker=new NativePreviewBlocker(point=>!test&&ShouldSuppressPreview(point),()=>popup.Visible?popup.Bounds:null,point=>buttons.FirstOrDefault(b=>b.Bounds.Contains(point))?.Bounds,()=>this.config.Groups.Select(GroupWindow.Title).ToArray());
-        tray=new NotifyIcon {Icon=SystemIcons.Application,Text="Grupos de la barra",Visible=!test};
+        tray=new NotifyIcon {Icon=AppIcon.Tray,Text="Grupos de la barra",Visible=!test};
         var menu=new ContextMenuStrip(); menu.Items.Add("Crear y editar grupos…",null,(_,_)=>Edit());
         foreach(var g in config.Groups) { var id=g.Id; menu.Items.Add("Abrir "+g.Name,null,(_,_)=>ShowGroup(id,true)); }
         menu.Items.Add(new ToolStripSeparator()); menu.Items.Add("Ver instrucciones",null,(_,_)=>Process.Start(new ProcessStartInfo(Path.Combine(Program.Base,"LEEME.txt")){UseShellExecute=true}));
@@ -187,7 +188,7 @@ sealed class Manager : ApplicationContext {
         var group=config.Groups.FirstOrDefault(g=>g.Id==id)??config.Groups.FirstOrDefault(); if(group==null){Edit();return;}
         var point=pointer??Cursor.Position;var button=ResolveButton(group.Id,point,origin);
         var screen=button!=null?Screen.FromRectangle(button.Bounds):Screen.FromPoint(point);var anchor=button?.Bounds??new Rectangle(point.X,screen.WorkingArea.Bottom,44,44);
-        popup.PrepareMonitor(screen);popup.Render(group); popup.Place(anchor,screen); current=group.Id;currentButton=button; lastInside=DateTime.UtcNow; popup.Show();
+        popup.PrepareMonitor(screen);popup.Render(group); popup.Place(anchor,screen); current=group.Id;currentButton=button; lastInside=DateTime.UtcNow; popup.ShowFromTaskbar(!test);
         if(activate) {popup.Activate();popup.FocusFirst();}
     }
     void NativePreviewRequested(string id,Point? pointer=null){
@@ -282,48 +283,86 @@ sealed class GroupWindow : Form {
     protected override void Dispose(bool disposing) {var icon=Icon;base.Dispose(disposing);if(disposing)icon?.Dispose();}
 }
 
-sealed class Popup : Form {
+sealed partial class Popup : Form {
     readonly Manager manager;
     readonly List<Image> images=new();
     readonly ToolTip hints=new(){ShowAlways=true,InitialDelay=600};
+    PopupFrame? frame;
+    string? renderedGroupId;
     Size availableSize=new(1920,1080);
-    public Popup(Manager manager) {this.manager=manager;Text="Accesos del grupo";FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;BackColor=Color.FromArgb(28,31,47);ForeColor=Color.White;Font=new Font("Segoe UI",10);KeyPreview=true;AutoScaleMode=AutoScaleMode.None;DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);}
+    public Popup(Manager manager) {this.manager=manager;Text="Accesos del grupo";FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;ShowInTaskbar=false;TopMost=true;BackColor=Color.FromArgb(28,31,47);ForeColor=Color.White;Font=new Font("Segoe UI",10);KeyPreview=true;AutoScaleMode=AutoScaleMode.None;DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);InitializeMotion();}
     protected override bool ShowWithoutActivation=>true;
-    protected override CreateParams CreateParams {get {var cp=base.CreateParams;cp.ClassStyle|=0x20000;cp.ExStyle|=0x80;return cp;}}
-    public void PrepareMonitor(Screen screen){availableSize=screen.WorkingArea.Size;_=Handle;if(Screen.FromHandle(Handle).DeviceName!=screen.DeviceName){Hide();Location=new Point(screen.WorkingArea.Left+20,screen.WorkingArea.Top+20);}}
+    protected override CreateParams CreateParams {get {var cp=base.CreateParams;cp.ClassStyle&=~0x20000;cp.ExStyle|=0x02000080;return cp;}}
+    public void PrepareMonitor(Screen screen){FinishEntrance();availableSize=screen.WorkingArea.Size;_=Handle;if(Screen.FromHandle(Handle).DeviceName!=screen.DeviceName){Hide();Location=new Point(screen.WorkingArea.Left+20,screen.WorkingArea.Top+20);}}
     public void Render(Group group) {
+        // Build the next group while hidden, before starting its own entrance.
+        if(Visible&&renderedGroupId!=group.Id)Hide();
+        FinishEntrance();
+        renderedGroupId=group.Id;
         SuspendLayout();hints.RemoveAll();foreach(Control c in Controls.Cast<Control>().ToArray())c.Dispose();Controls.Clear();foreach(var i in images)i.Dispose();images.Clear();
         int scale=DeviceDpi; int S(int n)=>(int)Math.Round(n*scale/96.0);
         int columns=Math.Clamp(group.Apps.Count<=4?group.Apps.Count:(int)Math.Ceiling(Math.Sqrt(group.Apps.Count*1.5)),1,6);
         columns=Math.Min(columns,Math.Max(1,(availableSize.Width-S(56))/S(94)));
         int rows=Math.Max(1,(int)Math.Ceiling(group.Apps.Count/(double)columns));
         int width=Math.Min(Math.Max(S(310),S(32+columns*94)),availableSize.Width-S(16));
-        int visibleRows=Math.Min(rows,Math.Max(1,Math.Min(5,(availableSize.Height-S(116))/S(94))));
-        int height=Math.Min(S(92+visibleRows*94),availableSize.Height-S(24));
-        if(rows*S(94)>height-S(90))width=Math.Min(width+SystemInformation.VerticalScrollBarWidth,availableSize.Width-S(16));
+        int visibleRows=Math.Min(rows,Math.Max(1,Math.Min(5,(availableSize.Height-S(94))/S(94))));
+        int height=Math.Min(S(70+visibleRows*94),availableSize.Height-S(24));
+        if(rows*S(94)>height-S(70))width=Math.Min(width+SystemInformation.VerticalScrollBarWidth,availableSize.Width-S(16));
         ClientSize=new Size(width,height);
-        var heading=new Label {Text=group.Name,AutoEllipsis=true,UseMnemonic=false,Location=new Point(S(18),S(16)),Size=new Size(Width-S(100),S(28)),ForeColor=ColorTranslator.FromHtml(group.Color),Font=new Font("Segoe UI",12,FontStyle.Bold)};Controls.Add(heading);hints.SetToolTip(heading,group.Name);
-        var edit=new Button {Text="Editar",FlatStyle=FlatStyle.Flat,Location=new Point(Width-S(76),S(14)),Size=new Size(S(60),S(30)),TabStop=true,Cursor=Cursors.Hand};edit.FlatAppearance.BorderSize=0;edit.FlatAppearance.MouseOverBackColor=Color.FromArgb(47,53,77);edit.Click+=(_,_)=>manager.Edit();Controls.Add(edit);
-        var body=new Panel {Location=new Point(S(10),S(54)),Size=new Size(Width-S(20),Height-S(90)),AutoScroll=true,BackColor=BackColor};Controls.Add(body);
+        var heading=new Label {Text=group.Name,AutoEllipsis=true,UseMnemonic=false,Location=new Point(S(18),S(16)),Size=new Size(Width-S(36),S(28)),ForeColor=ColorTranslator.FromHtml(group.Color),Font=new Font("Segoe UI",12,FontStyle.Bold)};Controls.Add(heading);hints.SetToolTip(heading,group.Name);
+        var body=new AppPanel {Location=new Point(S(10),S(54)),Size=new Size(Width-S(20),Height-S(70)),AutoScroll=true,BackColor=BackColor};body.Scroll+=(_,_)=>FinishEntrance();Controls.Add(body);
         bool scroll=rows*S(94)>body.Height;int bodyWidth=body.ClientSize.Width-(scroll?SystemInformation.VerticalScrollBarWidth:0);
         for(int index=0;index<group.Apps.Count;index++) {var app=group.Apps[index];var image=Native.GetIcon(string.IsNullOrWhiteSpace(app.IconPath)?app.ResolvedTarget:app.ResolvedIconPath);if(image!=null)images.Add(image);
             int row=index/columns,rowCount=Math.Min(columns,group.Apps.Count-row*columns);int left=(bodyWidth-rowCount*S(94))/2;
             var tile=new AppTile(app.Name,image,ColorTranslator.FromHtml(group.Color)) {Location=new Point(Math.Max(0,left)+(index%columns)*S(94)+S(3),row*S(94)),Size=new Size(S(88),S(88)),BackColor=BackColor,ForeColor=ForeColor,TabIndex=index};tile.Click+=(_,_)=>manager.Launch(app);body.Controls.Add(tile);hints.SetToolTip(tile,app.Name);}
-        if(group.Apps.Count==0) body.Controls.Add(new Label {Text="Este grupo aún no tiene accesos.\nPulsa Editar para añadir aplicaciones.",Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleCenter,ForeColor=Color.FromArgb(181,188,207)});
-        Controls.Add(new Label {Text=group.Apps.Count==0?"Añade accesos desde Editar · Esc para cerrar":"Selecciona una app · Esc para cerrar",AutoSize=false,TextAlign=ContentAlignment.MiddleCenter,ForeColor=Color.FromArgb(164,173,196),Location=new Point(S(12),Height-S(29)),Size=new Size(Width-S(24),S(20)),Font=new Font("Segoe UI",8)});
+        if(group.Apps.Count==0) body.Controls.Add(new Label {Text="Este grupo aún no tiene accesos.\nAñade aplicaciones desde el menú de la bandeja.",Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleCenter,ForeColor=Color.FromArgb(181,188,207)});
         ResumeLayout();Invalidate(true);
     }
     public void Place(Rectangle anchor,Screen screen) {
-        var area=screen.WorkingArea; var bounds=screen.Bounds;
+        FinishEntrance();var area=screen.WorkingArea;
         int x=anchor.Left+(anchor.Width-Width)/2, y=anchor.Top-Height-8;
         if(anchor.Top<area.Top) y=anchor.Bottom+8;
         else if(anchor.Left<area.Left){x=anchor.Right+8;y=anchor.Top+(anchor.Height-Height)/2;}
         else if(anchor.Right>area.Right){x=anchor.Left-Width-8;y=anchor.Top+(anchor.Height-Height)/2;}
         Location=new Point(Math.Clamp(x,area.Left+4,Math.Max(area.Left+4,area.Right-Width-4)),Math.Clamp(y,area.Top+4,Math.Max(area.Top+4,area.Bottom-Height-4)));
+        ConfigureEntrance(anchor,screen);
     }
     public void FocusFirst(){Controls.OfType<Panel>().SelectMany(p=>p.Controls.OfType<AppTile>()).FirstOrDefault()?.Focus();}
-    protected override void OnPaint(PaintEventArgs e){base.OnPaint(e);using var pen=new Pen(Color.FromArgb(67,73,101));e.Graphics.DrawRectangle(pen,0,0,Width-1,Height-1);}
-    protected override void Dispose(bool disposing){base.Dispose(disposing);if(disposing){hints.Dispose();foreach(var i in images)i.Dispose();images.Clear();}}
+    GraphicsPath RoundedPath(RectangleF bounds) {
+        const float cornerRadius=8f; // Windows 11 window and flyout radius at 96 DPI.
+        float diameter=Math.Min(2*cornerRadius*DeviceDpi/96f,Math.Min(bounds.Width,bounds.Height));
+        var path=new GraphicsPath();
+        path.AddArc(bounds.Left,bounds.Top,diameter,diameter,180,90);
+        path.AddArc(bounds.Right-diameter,bounds.Top,diameter,diameter,270,90);
+        path.AddArc(bounds.Right-diameter,bounds.Bottom-diameter,diameter,diameter,0,90);
+        path.AddArc(bounds.Left,bounds.Bottom-diameter,diameter,diameter,90,90);path.CloseFigure();return path;
+    }
+    void UpdateShape() {
+        ApplyShape(Location);frame?.Render(entranceClip.HasValue);Invalidate();
+    }
+    void ApplyShape(Point location) {
+        if(ClientSize.Width<2||ClientSize.Height<2)return;
+        // Keep opaque pixels inside the outline; the alpha frame draws the edge.
+        using var path=RoundedPath(new RectangleF(1,1,ClientSize.Width-2,ClientSize.Height-2));
+        var next=new Region(path);Rectangle? clip=EntranceClip(location);if(clip.HasValue)next.Intersect(clip.Value);
+        var previous=Region;Region=next;previous?.Dispose();frame?.Clip(clip);
+    }
+    protected override void OnHandleCreated(EventArgs e){base.OnHandleCreated(e);frame=new PopupFrame(this,RoundedPath);UpdateShape();}
+    protected override void OnHandleDestroyed(EventArgs e){StopEntrance();frame?.Dispose();frame=null;base.OnHandleDestroyed(e);}
+    protected override void OnSizeChanged(EventArgs e){base.OnSizeChanged(e);UpdateShape();}
+    protected override void OnDpiChanged(DpiChangedEventArgs e){base.OnDpiChanged(e);UpdateShape();}
+    protected override void OnLocationChanged(EventArgs e){base.OnLocationChanged(e);frame?.Move();}
+    // WinForms finishes setting the native window order after VisibleChanged.
+    // Raise the content and outline together after that operation completes.
+    protected override void SetVisibleCore(bool visible){base.SetVisibleCore(visible);frame?.Show(visible);if(!visible)FinishEntrance();}
+    protected override void OnActivated(EventArgs e){base.OnActivated(e);frame?.Show(Visible);}
+    public new void DrawToBitmap(Bitmap bitmap,Rectangle bounds){base.DrawToBitmap(bitmap,bounds);frame?.DrawToBitmap(bitmap,bounds);}
+    protected override void Dispose(bool disposing){if(disposing){StopEntrance();entranceTimer.Dispose();}base.Dispose(disposing);if(disposing){hints.Dispose();foreach(var i in images)i.Dispose();images.Clear();}}
+}
+// The tile gaps must be painted in the same buffered pass as their background
+// when the bottom of the scrolling panel is revealed by the entrance animation.
+sealed class AppPanel : Panel {
+    public AppPanel(){DoubleBuffered=true;SetStyle(ControlStyles.AllPaintingInWmPaint|ControlStyles.ResizeRedraw,true);}
 }
 sealed class AppTile : Control {
     readonly Image? image; readonly Color accent; bool hover;

@@ -10,6 +10,7 @@ The public distribution starts empty. It contains no predefined groups, applicat
 - Choose a group symbol and color; icons are generated locally.
 - Add installed applications, executable files, shortcuts, or URLs.
 - Open groups by hover or click, with adjustable hover delay.
+- Slide popups into view from behind the taskbar, including when switching groups; respect Windows' animation effects setting.
 - Place the popup on the monitor containing the hovered taskbar button, including displays with different scaling.
 - Suppress the Windows thumbnail flyout while interacting with a group. This can be disabled in the editor.
 - Optionally start with Windows; keep the previous configuration as a backup when saving.
@@ -23,7 +24,7 @@ The packaged app targets **Windows 11 x64** and requires the **.NET Desktop Runt
 3. The group icons appear in the taskbar while the utility runs. Hover over or click an icon to open its applications.
 4. To keep a group pinned, open **Accesos de grupo para anclar…** from the tray menu and pin its generated shortcut. Unpin individual application shortcuts yourself if you want to replace them with groups.
 
-Double-click the tray icon, choose **Crear y editar grupos…**, or click **Editar** in a popup to change groups. **Esc** closes a popup. **Salir** in the tray menu stops the utility. To show icons on additional monitors, enable the corresponding Windows taskbar setting.
+Double-click the tray icon or choose **Crear y editar grupos…** in its menu to change groups. **Esc** closes a popup. **Salir** in the tray menu stops the utility. To show icons on additional monitors, enable the corresponding Windows taskbar setting.
 
 Settings and generated assets are stored beside the executable: `groups.json` and its backup, `icons/`, `Grupos/`, and imported shortcuts in `Accesos/`. Moving the installation can require updating pinned or startup shortcuts. The empty `groups.example.json` is a template, not an imported configuration.
 
@@ -37,7 +38,7 @@ dotnet src/TaskbarGroups/bin/Release/net10.0-windows/TaskbarGroups.dll --config-
 ./scripts/Publish.ps1
 ```
 
-The configuration checks cover empty startup, saved edits, backups, rejected invalid edits, and preview suppression scope. `Publish.ps1` builds a fresh release, runs those checks, and produces `artifacts/TaskbarGroups-win-x64.zip`. The package uses a file allowlist so installation data cannot be copied into it. GitHub Actions builds and attaches the same ZIP to successful workflow runs.
+The checks cover empty startup, saved edits, backups, rejected invalid edits, preview suppression scope, icon transparency and orientation, and registered Windows app icon lookup (when registered apps are available). `Publish.ps1` builds a fresh release, runs those checks, and produces `artifacts/TaskbarGroups-win-x64.zip`. The package uses a file allowlist so installation data cannot be copied into it. GitHub Actions builds and attaches the same ZIP to successful workflow runs.
 
 For an interactive desktop smoke test, run the app with `--self-test` from a separate writable build folder. It uses a synthetic group and writes local diagnostic reports and screenshots. Those files are excluded from version control and packaging. This test does not replace manual hover, multi-monitor, or application-launch verification.
 

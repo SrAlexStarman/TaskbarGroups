@@ -24,7 +24,7 @@ sealed class Editor : Form {
     readonly string startupPath=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup),"Grupos de la barra.lnk");
     public Editor(Config config) {
         Result=JsonSerializer.Deserialize<Config>(JsonSerializer.Serialize(config,Program.Json),Program.Json)!;
-        Text="Crear y editar grupos";ClientSize=new Size(940,634);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;StartPosition=FormStartPosition.CenterScreen;Font=new Font("Segoe UI",10);AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);BackColor=Color.FromArgb(245,247,251);Icon=SystemIcons.Application;
+        Text="Crear y editar grupos";ClientSize=new Size(940,634);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;StartPosition=FormStartPosition.CenterScreen;Font=new Font("Segoe UI",10);AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);BackColor=Color.FromArgb(245,247,251);Icon=AppIcon.Window;
         LabelAt("TUS GRUPOS",20,18,180,24,true);
         groups.SetBounds(20,50,180,390);groups.IntegralHeight=false;groups.DrawMode=DrawMode.OwnerDrawFixed;groups.ItemHeight=22;groups.DrawItem+=(_,e)=>{e.DrawBackground();if(e.Index>=0&&e.Index<groups.Items.Count)TextRenderer.DrawText(e.Graphics,groups.Items[e.Index].ToString(),groups.Font,e.Bounds,e.ForeColor,TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);e.DrawFocusRectangle();};Controls.Add(groups);groups.SelectedIndexChanged+=(_,_)=>BindGroup();
         ButtonAt("+ Crear grupo",20,452,180,34,()=>AddGroup());ButtonAt("Eliminar",20,494,86,32,()=>DeleteGroup());ButtonAt("↑",114,494,39,32,()=>MoveGroup(-1));ButtonAt("↓",161,494,39,32,()=>MoveGroup(1));
@@ -102,7 +102,7 @@ sealed class AccessEditor : Form {
     public AppEntry Result {get;}
     public AccessEditor(AppEntry original){
         Result=JsonSerializer.Deserialize<AppEntry>(JsonSerializer.Serialize(original,Program.Json),Program.Json)!;
-        Text="Editar acceso";ClientSize=new Size(620,300);StartPosition=FormStartPosition.CenterParent;Font=new Font("Segoe UI",10);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;MinimizeBox=false;
+        Text="Editar acceso";ClientSize=new Size(620,300);StartPosition=FormStartPosition.CenterParent;Font=new Font("Segoe UI",10);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;MinimizeBox=false;Icon=AppIcon.Window;
         TextBox Field(string title,string value,int y){Controls.Add(new Label {Text=title,Location=new Point(18,y),Size=new Size(580,24)});var t=new TextBox {Text=value,Location=new Point(18,y+27),Size=new Size(580,30)};Controls.Add(t);return t;}
         var name=Field("Nombre",Result.Name,15);var target=Field("Destino (archivo, acceso, URL o shell:AppsFolder…)",Result.Target,86);var arguments=Field("Argumentos (opcional)",Result.Arguments,157);
         var cancel=new Button {Text="Cancelar",Location=new Point(365,246),Size=new Size(110,34),DialogResult=DialogResult.Cancel};Controls.Add(cancel);CancelButton=cancel;

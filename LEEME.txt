@@ -14,7 +14,10 @@ Haz doble clic en el icono de la bandeja para volver al editor.
 
 ABRIR UN GRUPO
 Pasa el ratón sobre su icono o haz clic en él. Selecciona una aplicación
-en el panel emergente. Esc cierra el panel. Editar abre el editor.
+en el panel emergente. Esc cierra el panel.
+El panel aparece con un breve deslizamiento desde detrás de la barra.
+Al cambiar de grupo, el nuevo panel reproduce el mismo movimiento.
+Si desactivas las animaciones en Windows, se abre inmediatamente.
 En el editor puedes ajustar la espera al pasar el ratón y la ocultación
 de la miniatura de Windows durante el uso de los grupos.
 
