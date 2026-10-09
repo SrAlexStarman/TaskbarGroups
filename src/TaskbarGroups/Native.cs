@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -17,12 +18,55 @@ static class Native
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder text, int count);
     [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr icon);
     [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr obj);
+    [StructLayout(LayoutKind.Sequential)] struct NativeBitmap { public int Type,Width,Height,Stride; public ushort Planes,BitsPerPixel; public IntPtr Bits; }
+    [StructLayout(LayoutKind.Sequential)] struct BitmapHeader { public uint Size; public int Width,Height; public ushort Planes,BitCount; public uint Compression,SizeImage; public int XPelsPerMeter,YPelsPerMeter; public uint ColorsUsed,ColorsImportant; }
+    [DllImport("gdi32.dll",EntryPoint="GetObjectW")] static extern int GetBitmapObject(IntPtr bitmap,int size,out NativeBitmap info);
+    [DllImport("gdi32.dll",SetLastError=true)] static extern IntPtr CreateCompatibleDC(IntPtr dc);
+    [DllImport("gdi32.dll")] static extern bool DeleteDC(IntPtr dc);
+    [DllImport("gdi32.dll")] static extern IntPtr SelectObject(IntPtr dc,IntPtr obj);
+    [StructLayout(LayoutKind.Sequential)] struct POINT { public int X,Y;public POINT(Point point){X=point.X;Y=point.Y;} }
+    [StructLayout(LayoutKind.Sequential,Pack=1)] struct BlendFunction { public byte Operation,Flags,Opacity,AlphaFormat; }
+    [DllImport("user32.dll",SetLastError=true)] static extern bool UpdateLayeredWindow(IntPtr hwnd,IntPtr target,ref POINT position,ref Size size,IntPtr source,ref POINT origin,uint color,ref BlendFunction blend,uint flags);
+    [DllImport("user32.dll",SetLastError=true)] static extern bool SetWindowPos(IntPtr hwnd,IntPtr after,int x,int y,int width,int height,uint flags);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd,int command);
+    [DllImport("user32.dll",EntryPoint="SystemParametersInfoW")] static extern bool SystemParametersInfo(uint action,uint parameter,out int value,uint flags);
+    [DllImport("gdi32.dll")] static extern IntPtr CreateRectRgn(int left,int top,int right,int bottom);
+    [DllImport("user32.dll",SetLastError=true)] static extern int SetWindowRgn(IntPtr hwnd,IntPtr region,bool redraw);
+    [DllImport("gdi32.dll")] static extern int GetDIBits(IntPtr dc,IntPtr bitmap,uint start,uint count,[Out] byte[] pixels,ref BitmapHeader info,uint usage);
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd,int attribute,ref int value,int size);
     [DllImport("dwmapi.dll")] public static extern int DwmInvalidateIconicBitmaps(IntPtr hwnd);
     [DllImport("dwmapi.dll")] static extern int DwmSetIconicThumbnail(IntPtr hwnd,IntPtr bitmap,uint flags);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hwnd,uint message,IntPtr wParam,IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
+    public static void SetAlphaFrame(IntPtr hwnd,Bitmap bitmap,Point location) {
+        var dc=CreateCompatibleDC(IntPtr.Zero);IntPtr handle=IntPtr.Zero,previous=IntPtr.Zero;
+        if(dc==IntPtr.Zero)throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        try {
+            handle=bitmap.GetHbitmap(Color.FromArgb(0));previous=SelectObject(dc,handle);
+            if(previous==IntPtr.Zero||previous==new IntPtr(-1))throw new InvalidOperationException("Windows could not select the popup outline bitmap.");
+            var position=new POINT(location);var origin=new POINT(Point.Empty);var size=bitmap.Size;
+            var blend=new BlendFunction {Opacity=255,AlphaFormat=1};
+            if(!UpdateLayeredWindow(hwnd,IntPtr.Zero,ref position,ref size,dc,ref origin,0,ref blend,2))throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        } finally {if(previous!=IntPtr.Zero&&previous!=new IntPtr(-1))SelectObject(dc,previous);if(handle!=IntPtr.Zero)DeleteObject(handle);DeleteDC(dc);}
+    }
+    public static void ShowAlphaFrame(IntPtr hwnd,IntPtr owner,bool visible) {
+        if(visible) {
+            // Both surfaces must stay above other apps; raising only the owned
+            // outline can leave the ordinary WinForms content behind them.
+            // Do not reorder WinForms' hidden owner along with these surfaces.
+            SetWindowPos(owner,new IntPtr(-1),0,0,0,0,0x253);
+            SetWindowPos(hwnd,new IntPtr(-1),0,0,0,0,0x253);
+        } else ShowWindow(hwnd,0);
+    }
+    public static void MoveAlphaFrame(IntPtr hwnd,Point location)=>SetWindowPos(hwnd,IntPtr.Zero,location.X,location.Y,0,0,0x15);
+    public static bool ClientAnimationsEnabled=>!SystemParametersInfo(0x1042,0,out int enabled,0)||enabled!=0;
+    public static void SetWindowClip(IntPtr hwnd,Rectangle? clip) {
+        var region=clip is Rectangle r?CreateRectRgn(r.Left,r.Top,r.Right,r.Bottom):IntPtr.Zero;
+        if(clip.HasValue&&region==IntPtr.Zero)throw new System.ComponentModel.Win32Exception();
+        // Windows takes ownership of the region when SetWindowRgn succeeds.
+        if(SetWindowRgn(hwnd,region,true)==0){if(region!=IntPtr.Zero)DeleteObject(region);throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());}
+    }
     [ComImport,Guid("56FDF342-FD6D-11D0-958A-006097C9A090"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] interface ITaskbarList {void HrInit();void AddTab(IntPtr hwnd);void DeleteTab(IntPtr hwnd);void ActivateTab(IntPtr hwnd);void SetActiveAlt(IntPtr hwnd);}
     public static void RegisterTaskbarWindow(IntPtr hwnd){object? instance=null;try{instance=Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("56FDF344-FD6D-11D0-958A-006097C9A090"))!);var list=(ITaskbarList)instance!;list.HrInit();list.AddTab(hwnd);}finally{if(instance!=null)Marshal.ReleaseComObject(instance);}}
     public static void EnableNativePreview(IntPtr hwnd){int yes=1;Marshal.ThrowExceptionForHR(DwmSetWindowAttribute(hwnd,7,ref yes,4));Marshal.ThrowExceptionForHR(DwmSetWindowAttribute(hwnd,10,ref yes,4));DwmSetWindowAttribute(hwnd,11,ref yes,4);}
@@ -72,13 +116,39 @@ static class Native
                 try{shell=Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!);shortcut=((dynamic)shell!).CreateShortcut(path);string location=((dynamic)shortcut!).IconLocation;var comma=location.LastIndexOf(',');if(comma>=0)location=location.Substring(0,comma);location=Environment.ExpandEnvironmentVariables(location.Trim('"'));iconPath=File.Exists(location)?location:(string)((dynamic)shortcut).TargetPath;}finally{if(shortcut!=null)Marshal.ReleaseComObject(shortcut);if(shell!=null)Marshal.ReleaseComObject(shell);}
                 SHGetFileInfo(iconPath,0,out var info,(uint)Marshal.SizeOf<FileInfo>(),0x100);if(info.Icon!=IntPtr.Zero)try{return Icon.FromHandle(info.Icon).ToBitmap();}finally{DestroyIcon(info.Icon);}}
         }catch{}
-        if (path.StartsWith("shell:AppsFolder\\",StringComparison.OrdinalIgnoreCase)) path="::{4234D49B-0245-4DF3-B780-3893943456E1}\\"+path.Substring(17);
+        // Keep the shell: prefix: AppsFolder entries are virtual items, and the
+        // bare ::{GUID} form is not accepted by SHCreateItemFromParsingName.
         var id=typeof(IShellItemImageFactory).GUID;
         try { if (SHCreateItemFromParsingName(path,IntPtr.Zero,ref id,out var factory)<0) return null;
             try { if (factory.GetImage(new Size(48,48),4,out var bitmap)<0) return null;
-                try { using var source=Image.FromHbitmap(bitmap); return new Bitmap(source); } finally { DeleteObject(bitmap); }
+                try { return CopyShellBitmap(bitmap); } finally { DeleteObject(bitmap); }
             } finally { Marshal.ReleaseComObject(factory); }
         } catch { return null; }
+    }
+    internal static Bitmap CopyShellBitmap(IntPtr handle) {
+        // FromHbitmap discards alpha. Request the Shell's 32-bit pixels in
+        // top-down order; GetObject alone does not report the original orientation.
+        if(GetBitmapObject(handle,Marshal.SizeOf<NativeBitmap>(),out var info)!=0&&info.BitsPerPixel==32) {
+            int width=info.Width,height=info.Height,rowBytes=checked(width*4);
+            var pixels=new byte[checked(rowBytes*height)];
+            var header=new BitmapHeader {Size=(uint)Marshal.SizeOf<BitmapHeader>(),Width=width,Height=-height,Planes=1,BitCount=32};
+            var dc=CreateCompatibleDC(IntPtr.Zero);int rows=0;
+            try { if(dc!=IntPtr.Zero)rows=GetDIBits(dc,handle,0,(uint)height,pixels,ref header,0); }
+            finally { if(dc!=IntPtr.Zero)DeleteDC(dc); }
+            bool hasAlpha=false;
+            for(int i=3;i<pixels.Length;i+=4)if(pixels[i]!=0){hasAlpha=true;break;}
+            if(rows==height&&hasAlpha) {
+                var result=new Bitmap(width,height,PixelFormat.Format32bppPArgb);
+                try {
+                    var data=result.LockBits(new Rectangle(0,0,width,height),ImageLockMode.WriteOnly,PixelFormat.Format32bppPArgb);
+                    try { for(int y=0;y<height;y++)Marshal.Copy(pixels,y*rowBytes,IntPtr.Add(data.Scan0,y*data.Stride),rowBytes); }
+                    finally { result.UnlockBits(data); }
+                    return result;
+                } catch { result.Dispose();throw; }
+            }
+        }
+        // Older bitmaps may have no alpha channel; keep their opaque artwork.
+        using var source=Image.FromHbitmap(handle);return new Bitmap(source);
     }
     public static Icon GroupIcon(Group group) {
         using var bitmap=new Bitmap(64,64); using var g=Graphics.FromImage(bitmap); g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
