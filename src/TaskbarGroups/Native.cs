@@ -38,6 +38,7 @@ static class Native
     [DllImport("dwmapi.dll")] static extern int DwmSetIconicThumbnail(IntPtr hwnd,IntPtr bitmap,uint flags);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hwnd,uint message,IntPtr wParam,IntPtr lParam);
+    [DllImport("user32.dll",SetLastError=true)] static extern IntPtr SendMessageTimeout(IntPtr hwnd,uint message,IntPtr wParam,IntPtr lParam,uint flags,uint timeout,out IntPtr result);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
     public static void SetAlphaFrame(IntPtr hwnd,Bitmap bitmap,Point location) {
         var dc=CreateCompatibleDC(IntPtr.Zero);IntPtr handle=IntPtr.Zero,previous=IntPtr.Zero;
@@ -73,6 +74,7 @@ static class Native
     public static void SetNativePreview(IntPtr hwnd,Bitmap bitmap){var handle=bitmap.GetHbitmap();try{DwmSetIconicThumbnail(hwnd,handle,0);}finally{DeleteObject(handle);}}
     [DllImport("shell32.dll")] static extern int SHGetPropertyStoreForWindow(IntPtr h, ref Guid id, out IPropertyStore store);
     [DllImport("shell32.dll", CharSet=CharSet.Unicode)] static extern int SHGetPropertyStoreFromParsingName(string path, IntPtr ctx, uint flags, ref Guid id, out IPropertyStore store);
+    [DllImport("shell32.dll",CharSet=CharSet.Unicode)] static extern void SHChangeNotify(uint change,uint flags,string path,IntPtr unused);
     [DllImport("shell32.dll", CharSet=CharSet.Unicode)] static extern int SHCreateItemFromParsingName(string path, IntPtr ctx, ref Guid id, out IShellItemImageFactory factory);
     [DllImport("ole32.dll")] static extern int PropVariantClear(ref Variant value);
     [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] struct FileInfo { public IntPtr Icon;public int Index;public uint Attributes;[MarshalAs(UnmanagedType.ByValTStr,SizeConst=260)]public string DisplayName;[MarshalAs(UnmanagedType.ByValTStr,SizeConst=80)]public string TypeName; }
@@ -100,14 +102,59 @@ static class Native
         try { Marshal.ThrowExceptionForHR(store.SetValue(ref key,ref value)); } finally { PropVariantClear(ref value); }
     }
     public static string AppId(Group group)=>"Personal.TaskbarGroups.NativeV2."+group.Id;
-    public static string IconPath(Group group)=>Path.Combine(Program.Base,"icons",group.Id+"-"+Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(group.Name+group.Color+group.Symbol))).Substring(0,8)+".ico");
+    public static string IconPath(Group group) {
+        var artwork=group.UseCustomIcon?Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(group.ResolvedIconPath))):group.Color+group.Symbol;
+        return Path.Combine(Program.Base,"icons",group.Id+"-"+Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(GroupArtwork.RenderingVersion+group.Name+artwork))).Substring(0,8)+".ico");
+    }
+    internal static string IconResource(Group group)=>IconPath(group)+",0";
+    // SHCNF_PATHW | SHCNF_FLUSHNOWAIT: notify Explorer without waiting on its UI.
+    internal static void NotifyFileChanged(string path,bool created=false)=>SHChangeNotify(created?0x2u:0x2000u,0x2005,Path.GetFullPath(path),IntPtr.Zero);
+    internal static void WriteGroupIcon(Group group) {
+        var path=IconPath(group);bool created=!File.Exists(path);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using(var icon=GroupIcon(group))using(var file=File.Create(path))icon.Save(file);
+        NotifyFileChanged(path,created);
+    }
     public static void SetWindowIdentity(IntPtr h, Group group) {
         var id=typeof(IPropertyStore).GUID; Marshal.ThrowExceptionForHR(SHGetPropertyStoreForWindow(h,ref id,out var store));
-        try { Set(store,5,AppId(group)); Set(store,2,"\""+Environment.ProcessPath+"\" --show "+group.Id); Set(store,4,group.Name); Set(store,3,IconPath(group)); } finally { Marshal.ReleaseComObject(store); }
+        // Setting the AppUserModelID tells Explorer to refresh the group. Its
+        // icon, display name and relaunch command must already be complete.
+        try { Set(store,2,"\""+Environment.ProcessPath+"\" --show "+group.Id); Set(store,4,group.Name); Set(store,3,IconResource(group)); Set(store,5,AppId(group)); } finally { Marshal.ReleaseComObject(store); }
     }
     public static void SetShortcutIdentity(string path, Group group) {
         var id=typeof(IPropertyStore).GUID; Marshal.ThrowExceptionForHR(SHGetPropertyStoreFromParsingName(path,IntPtr.Zero,2,ref id,out var store));
         try { Set(store,5,AppId(group)); Marshal.ThrowExceptionForHR(store.Commit()); } finally { Marshal.ReleaseComObject(store); }
+    }
+    public static string WindowAppId(IntPtr window) {
+        try {var id=typeof(IPropertyStore).GUID;if(SHGetPropertyStoreForWindow(window,ref id,out var store)<0)return "";return ReadAppId(store);}catch{return "";}
+    }
+    internal static string WindowIconResource(IntPtr window) {
+        var id=typeof(IPropertyStore).GUID;Marshal.ThrowExceptionForHR(SHGetPropertyStoreForWindow(window,ref id,out var store));return ReadProperty(store,3);
+    }
+    internal static void InspectGroupIcons() {
+        var lines=new List<string>();int index=0;
+        EnumWindows((window,_)=>{
+            var appId=WindowAppId(window);if(!appId.StartsWith("Personal.TaskbarGroups.",StringComparison.OrdinalIgnoreCase))return true;
+            try {
+                lines.Add("Window="+window+" AppId="+appId+" IconResource="+WindowIconResource(window));
+                foreach(int kind in new[]{0,1,2}) {
+                    if(SendMessageTimeout(window,0x7F,new IntPtr(kind),IntPtr.Zero,2,500,out var handle)==IntPtr.Zero||handle==IntPtr.Zero){lines.Add("Icon "+kind+": unavailable");continue;}
+                    using var icon=Icon.FromHandle(handle);using var bitmap=icon.ToBitmap();
+                    string file="icon-inspect-"+index+"-"+kind+".png";bitmap.Save(Path.Combine(Program.Base,file),System.Drawing.Imaging.ImageFormat.Png);lines.Add("Icon "+kind+": "+file+" "+bitmap.Size);
+                }
+            }catch(Exception error){lines.Add(error.ToString());}
+            index++;return true;
+        },IntPtr.Zero);
+        File.WriteAllLines(Path.Combine(Program.Base,"icon-inspect.txt"),lines);
+    }
+    public static string ShortcutAppId(string path) {
+        try {var id=typeof(IPropertyStore).GUID;if(SHGetPropertyStoreFromParsingName(path,IntPtr.Zero,0,ref id,out var store)<0)return "";return ReadAppId(store);}catch{return "";}
+    }
+    static string ReadAppId(IPropertyStore store)=>ReadProperty(store,5);
+    static string ReadProperty(IPropertyStore store,uint property) {
+        var value=new Variant();
+        try {var key=new PropertyKey(property);store.GetValue(ref key,out value);return value.Type==31?Marshal.PtrToStringUni(value.Ptr)??"":"";}
+        finally {PropVariantClear(ref value);Marshal.ReleaseComObject(store);}
     }
     public static Bitmap? GetIcon(string path) {
         try {if(File.Exists(path)&&Path.GetExtension(path).Equals(".png",StringComparison.OrdinalIgnoreCase)){using var png=Image.FromFile(path);return new Bitmap(png);}
@@ -151,14 +198,16 @@ static class Native
         using var source=Image.FromHbitmap(handle);return new Bitmap(source);
     }
     public static Icon GroupIcon(Group group) {
+        if(group.UseCustomIcon) {using var custom=GroupArtwork.Load(group.ResolvedIconPath);return GroupArtwork.ToIcon(custom);}
         using var bitmap=new Bitmap(64,64); using var g=Graphics.FromImage(bitmap); g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         var color=ColorTranslator.FromHtml(group.Color); using var fill=new SolidBrush(color); using var pen=new Pen(Color.FromArgb(22,25,39),4) { StartCap=System.Drawing.Drawing2D.LineCap.Round,EndCap=System.Drawing.Drawing2D.LineCap.Round };
-        g.FillEllipse(fill,2,2,60,60);
+        g.FillEllipse(fill,0,0,64,64);
+        g.TranslateTransform(32,32);g.ScaleTransform(1.18f,1.18f);g.TranslateTransform(-32,-32);
         if(group.Symbol=="work") { g.DrawRectangle(pen,17,25,30,21); g.DrawRectangle(pen,25,18,14,7); g.DrawLine(pen,17,33,47,33); g.DrawLine(pen,32,31,32,36); }
         else if(group.Symbol=="games") { g.DrawArc(pen,13,21,38,28,170,200); g.DrawLine(pen,13,35,18,45); g.DrawLine(pen,18,45,26,38); g.DrawLine(pen,26,38,38,38); g.DrawLine(pen,38,38,46,45); g.DrawLine(pen,46,45,51,35); g.DrawLine(pen,21,28,21,36); g.DrawLine(pen,17,32,25,32); g.DrawEllipse(pen,38,28,1,1); g.DrawEllipse(pen,44,33,1,1); }
         else if(group.Symbol=="ai") { g.DrawRectangle(pen,21,21,22,22); g.DrawRectangle(pen,27,27,10,10); for(int i=25;i<=39;i+=7) { g.DrawLine(pen,i,15,i,21); g.DrawLine(pen,i,43,i,49); g.DrawLine(pen,15,i,21,i); g.DrawLine(pen,43,i,49,i); } }
         else if(group.Symbol=="folder") { g.DrawLines(pen,new[]{new Point(16,43),new Point(16,21),new Point(29,21),new Point(34,27),new Point(48,27),new Point(48,43),new Point(16,43)}); }
         else { using var font=new Font("Segoe UI",24,FontStyle.Bold); using var ink=new SolidBrush(Color.FromArgb(22,25,39)); var format=new StringFormat { Alignment=StringAlignment.Center,LineAlignment=StringAlignment.Center }; g.DrawString(group.Name.Substring(0,1).ToUpperInvariant(),font,ink,new RectangleF(0,0,64,64),format); }
-        g.Flush();using var png=new MemoryStream();bitmap.Save(png,System.Drawing.Imaging.ImageFormat.Png);using var ico=new MemoryStream();using(var writer=new BinaryWriter(ico,Encoding.UTF8,true)){writer.Write((ushort)0);writer.Write((ushort)1);writer.Write((ushort)1);writer.Write((byte)64);writer.Write((byte)64);writer.Write((byte)0);writer.Write((byte)0);writer.Write((ushort)1);writer.Write((ushort)32);writer.Write((uint)png.Length);writer.Write((uint)22);writer.Write(png.ToArray());}ico.Position=0;return new Icon(ico,64,64);
+        g.Flush();return GroupArtwork.ToIcon(bitmap);
     }
 }

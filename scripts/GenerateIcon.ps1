@@ -1,11 +1,14 @@
 [CmdletBinding()]
-param()
+param(
+    [ValidatePattern('^[A-Za-z][A-Za-z0-9_-]*$')]
+    [string]$IconName = 'AppIcon'
+)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $assetRoot = Join-Path $repoRoot 'src/TaskbarGroups/Assets'
-$source = [Drawing.Bitmap]::new((Join-Path $assetRoot 'AppIcon.png'))
+$source = [Drawing.Bitmap]::new((Join-Path $assetRoot ($IconName + '.png')))
 $sizes = @(16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 $frames = [Collections.Generic.List[byte[]]]::new()
 
@@ -32,7 +35,7 @@ try {
     $source.Dispose()
 }
 
-$iconPath = Join-Path $assetRoot 'AppIcon.ico'
+$iconPath = Join-Path $assetRoot ($IconName + '.ico')
 $file = [IO.File]::Create($iconPath)
 $writer = [IO.BinaryWriter]::new($file)
 try {
