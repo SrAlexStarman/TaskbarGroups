@@ -28,3 +28,6 @@ preview-host.txt
 native-taskbar-*.png
 diagnostic.txt
 self-test*
+scan-test.txt
+icon-inspect.txt
+icon-inspect-*.png

@@ -6,6 +6,18 @@ using System.Windows.Forms;
 
 namespace TaskbarGroups;
 
+static class PopupShape {
+    // Windows 11 windows and flyouts use an 8-pixel radius at 96 DPI.
+    public static GraphicsPath RoundedPath(RectangleF bounds,int dpi,float cornerRadius=8f) {
+        float diameter=Math.Min(2*cornerRadius*dpi/96f,Math.Min(bounds.Width,bounds.Height));
+        var path=new GraphicsPath();
+        path.AddArc(bounds.Left,bounds.Top,diameter,diameter,180,90);
+        path.AddArc(bounds.Right-diameter,bounds.Top,diameter,diameter,270,90);
+        path.AddArc(bounds.Right-diameter,bounds.Bottom-diameter,diameter,diameter,0,90);
+        path.AddArc(bounds.Left,bounds.Bottom-diameter,diameter,diameter,90,90);path.CloseFigure();return path;
+    }
+}
+
 // The layered window draws the outline and shields tile gaps during entrance.
 // Controls remain transparent holes, preserving their normal input behavior.
 sealed class PopupFrame : NativeWindow,IDisposable {

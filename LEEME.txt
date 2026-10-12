@@ -7,7 +7,9 @@ Extrae todos los archivos en una carpeta donde puedas guardar cambios.
 Ejecuta TaskbarGroups.exe. La primera vez se abre el editor sin grupos.
 
 CREAR Y EDITAR
-Pulsa + Crear grupo, elige nombre, símbolo y color, y añade aplicaciones.
+Pulsa + Crear grupo, escribe el nombre y elige Color y símbolo o Icono de
+archivo. Usa Elegir icono… para importar un ICO, PNG, JPG o BMP. La vista
+previa muestra el aspecto elegido. Después añade aplicaciones.
 Puedes buscar aplicaciones instaladas, buscar archivos o arrastrar accesos.
 Guarda los cambios para mostrar los iconos de grupo en la barra de tareas.
 Haz doble clic en el icono de la bandeja para volver al editor.
@@ -15,6 +17,8 @@ Haz doble clic en el icono de la bandeja para volver al editor.
 ABRIR UN GRUPO
 Pasa el ratón sobre su icono o haz clic en él. Selecciona una aplicación
 en el panel emergente. Esc cierra el panel.
+Las aplicaciones con una ventana abierta o minimizada muestran un pequeño
+indicador debajo del icono, que se actualiza automáticamente.
 El panel aparece con un breve deslizamiento desde detrás de la barra.
 Al cambiar de grupo, el nuevo panel reproduce el mismo movimiento.
 Si desactivas las animaciones en Windows, se abre inmediatamente.
@@ -34,7 +38,9 @@ Para detener la utilidad, usa Salir en el menú de la bandeja.
 DATOS LOCALES
 Los grupos se guardan junto al programa en groups.json; groups.json.bak
 conserva la configuración anterior. Los iconos y accesos se generan
-localmente. Esta distribución no incluye grupos ni iconos personales.
+localmente. Los iconos importados se copian a AppIcons; puedes mover o borrar
+la imagen original. Al alternar entre icono y color con símbolo, se conservan
+ambas opciones. Esta distribución no incluye grupos ni iconos personales.
 Si mueves la carpeta, actualiza los accesos anclados y el de inicio.
 
 Código, instrucciones de compilación y limitaciones:

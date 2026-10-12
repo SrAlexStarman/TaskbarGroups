@@ -27,6 +27,16 @@ sealed class NativePreviewBlocker : IDisposable {
     readonly HashSet<IntPtr> pendingHidden=new();
     public bool HookInstalled=>hook!=IntPtr.Zero;
     public int HiddenCount {get;private set;}
+    internal static bool MatchesTaskbarThread(uint hostThread,uint hostProcess,uint taskbarThread,uint taskbarProcess)=>hostThread!=0&&hostProcess!=0&&hostThread==taskbarThread&&hostProcess==taskbarProcess;
+    internal static bool IsTaskbarThreadWindow(IntPtr hwnd) {
+        uint thread=GetWindowThreadProcessId(hwnd,out uint process);
+        return Native.Taskbars().Any(bar=>{uint owner=GetWindowThreadProcessId(bar.Handle,out uint ownerProcess);return MatchesTaskbarThread(thread,process,owner,ownerProcess);});
+    }
+    internal static int TaskbarPreviewHostCount() {
+        int count=0;IntPtr hwnd=IntPtr.Zero;var seen=new HashSet<IntPtr>();
+        while(seen.Count<64&&(hwnd=FindWindowEx(IntPtr.Zero,hwnd,"XamlExplorerHostIslandWindow",null))!=IntPtr.Zero&&seen.Add(hwnd))if(IsTaskbarThreadWindow(hwnd))count++;
+        return count;
+    }
     delegate void WinEvent(IntPtr hook,uint evt,IntPtr hwnd,int objectId,int childId,uint thread,uint time);
     delegate bool EnumCallback(IntPtr hwnd,IntPtr data);
     [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint min,uint max,IntPtr module,WinEvent callback,uint process,uint thread,uint flags);
@@ -58,25 +68,36 @@ sealed class NativePreviewBlocker : IDisposable {
     }
     bool ExplorerWindow(IntPtr hwnd){if((DateTime.UtcNow-explorerChecked).TotalSeconds>1){var bar=Native.Taskbars().FirstOrDefault();GetWindowThreadProcessId(bar.Handle,out explorerId);explorerChecked=DateTime.UtcNow;}GetWindowThreadProcessId(hwnd,out uint process);return explorerId!=0&&process==explorerId;}
     public bool ContextMenuActive=>PauseForMenu();
+    internal string DiagnosticState=>"menú="+menuOpen+",clicDerecho="+rightClickPending;
     bool PauseForMenu(){
         var point=System.Windows.Forms.Cursor.Position;
-        if((GetAsyncKeyState(2)&0x8000)!=0&&allowed(point)&&button(point) is Rectangle anchor){rightClickPending=true;rightClickTime=DateTime.UtcNow;contextAnchor=anchor;}
+        bool rightDown=(GetAsyncKeyState(2)&0x8000)!=0;
+        if(rightDown&&allowed(point)&&button(point) is Rectangle anchor){rightClickPending=true;rightClickTime=DateTime.UtcNow;contextAnchor=anchor;}
         // A thumbnail is also a XAML popup, so its mere presence must never
         // keep right-click suspension latched indefinitely.
-        if(rightClickPending&&(DateTime.UtcNow-rightClickTime).TotalMilliseconds>800&&contextAnchor?.Contains(point)!=true)rightClickPending=false;
-        if(menuOpen&&(DateTime.UtcNow-menuTime).TotalSeconds>1&&!HasNativeMenu()&&contextAnchor?.Contains(point)!=true)menuOpen=false;
+        if(!rightDown&&!HasNativeMenu()) {
+            if(rightClickPending&&(DateTime.UtcNow-rightClickTime).TotalMilliseconds>800)rightClickPending=false;
+            if(menuOpen&&(DateTime.UtcNow-menuTime).TotalSeconds>1)menuOpen=false;
+        }
         return menuOpen||rightClickPending;
     }
-    bool HasNativeMenu(){bool open=false;EnumWindows((h,d)=>{var cls=new StringBuilder(128);GetClassName(h,cls,cls.Capacity);if(cls.ToString()=="#32768"&&Native.IsWindowVisible(h)&&ExplorerWindow(h)){open=true;return false;}return true;},IntPtr.Zero);return open;}
+    bool HasNativeMenu(){foreach(var bar in Native.Taskbars()){uint thread=GetWindowThreadProcessId(bar.Handle,out _);var info=new GuiThreadInfo{Size=(uint)Marshal.SizeOf<GuiThreadInfo>()};if(GetGUIThreadInfo(thread,ref info)&&(info.Flags&0x1C)!=0)return true;}bool open=false;EnumWindows((h,d)=>{var cls=new StringBuilder(128);GetClassName(h,cls,cls.Capacity);if(cls.ToString()=="#32768"&&Native.IsWindowVisible(h)&&ExplorerWindow(h)){open=true;return false;}return true;},IntPtr.Zero);return open;}
     bool IsExplorerThumbnail(IntPtr hwnd){
         if(hwnd==IntPtr.Zero||!Native.IsWindowVisible(hwnd))return false;var name=new StringBuilder(128);GetClassName(hwnd,name,name.Capacity);if(name.ToString() is not("TaskListThumbnailWnd" or "Xaml_WindowedPopupClass" or "XamlExplorerHostIslandWindow")||!ExplorerWindow(hwnd))return false;
         uint thread=GetWindowThreadProcessId(hwnd,out uint process);var info=new GuiThreadInfo{Size=(uint)Marshal.SizeOf<GuiThreadInfo>()};bool menu=menuOpen&&GetGUIThreadInfo(thread,ref info)&&(info.Flags&0x1C)!=0;
         bool taskbarHost=false,ownPreview=false;
         if(name.ToString()=="XamlExplorerHostIslandWindow"){
-            if(!threadNames.TryGetValue(thread,out var description)){
-                description="";var handle=OpenThread(0x800,false,thread);if(handle!=IntPtr.Zero)try{if(GetThreadDescription(handle,out var ptr)>=0){description=Marshal.PtrToStringUni(ptr)??"";LocalFree(ptr);}}finally{CloseHandle(handle);}threadNames[thread]=description;
+            // HWND ownership remains readable when opening Explorer's thread is
+            // denied. Compare both IDs to the actual taskbar before consulting
+            // the optional thread description on other Explorer implementations.
+            taskbarHost=IsTaskbarThreadWindow(hwnd);
+            if(!taskbarHost) {
+                if(!threadNames.TryGetValue(thread,out var description)){
+                    description="";var handle=OpenThread(0x800,false,thread);if(handle!=IntPtr.Zero)try{if(GetThreadDescription(handle,out var ptr)>=0){description=Marshal.PtrToStringUni(ptr)??"";LocalFree(ptr);}}finally{CloseHandle(handle);}threadNames[thread]=description;
+                }
+                taskbarHost=description=="Taskbar";
             }
-            taskbarHost=description=="Taskbar";if(!taskbarHost)return false;
+            if(!taskbarHost)return false;
             // The host's identity was verified with UIA during diagnosis.
             // Avoid querying Explorer's UIA provider from our UI thread while
             // Explorer can synchronously request our thumbnail on that thread.
